@@ -6,7 +6,7 @@ import numpy as np
 
 from utils import randn_tensor
 
-#testing commit
+#testing commit & new branch juhi-ddpm
 class DDPMScheduler(nn.Module):
     
     def __init__(
