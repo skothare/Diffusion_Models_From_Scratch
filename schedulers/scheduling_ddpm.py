@@ -6,7 +6,7 @@ import numpy as np
 
 from utils import randn_tensor
 
-
+#testing commit
 class DDPMScheduler(nn.Module):
     
     def __init__(
