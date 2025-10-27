@@ -29,7 +29,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a model.")
     
     # config file
-    parser.add_argument("--config", type=str, default='configs/ddpm.yaml', help="config file used to specify parameters")
+    #set default to configs/ddpm.yaml when its set
+    parser.add_argument("--config", type=str, default=None, help="config file used to specify parameters")
 
     # data 
     parser.add_argument("--data_dir", type=str, default='./data/imagenet100_128x128/train', help="data folder") 
@@ -180,7 +181,7 @@ def main():
     
     # TODO: ddpm shceduler
     noise_scheduler = DDPMScheduler(
-        num_inference_steps=args.num_inference_timesteps, 
+        num_inference_steps=args.num_inference_steps, 
         num_train_timesteps=args.num_train_timesteps,
         beta_start=args.beta_start,
         beta_end=args.beta_end,
