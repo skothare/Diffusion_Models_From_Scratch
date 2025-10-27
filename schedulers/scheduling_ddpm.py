@@ -44,6 +44,9 @@ class DDPMScheduler(nn.Module):
         if self.beta_schedule == 'linear':
             # This is the DDPM implementation
             betas = torch.linspace(self.beta_start, self.beta_end, self.num_train_timesteps)
+        else:
+            print(f"[Warning] Unknown beta_schedule {self.beta_schedule}. Using linear schedule.")
+            betas = torch.linspace(self.beta_start, self.beta_end, self.num_train_timesteps)
         self.register_buffer("betas", betas)
          
         # TODO: calculate alphas
