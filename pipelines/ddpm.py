@@ -89,14 +89,14 @@ class DDPMPipeline:
         # TODO: starts with random noise (generate initial random noise tensor)
         image = randn_tensor(image_shape, generator=generator, device=device) # randn_tensor(image_shape, generator=generator, device=device)
 
-        # TODO: set step values using set_timesteps of scheduler
-        self.scheduler = self.scheduler.set_timesteps(num_inference_steps, device=device)
+        # TODO: set step values using steps of scheduler
+        self.scheduler.set_timesteps(num_inference_steps, device=device)
         
         # TODO: inverse diffusion process with for loop
         for t in self.progress_bar(self.scheduler.timesteps):
             
             # NOTE: this is for CFG
-            if guidance_scale is not None or guidance_scale != 1.0:
+            if guidance_scale is not None and guidance_scale != 1.0:
                 # TODO: implement cfg
                 model_input =  torch.cat([image] * 2)
                 c = torch.cat([uncond_embeds, class_embeds], dim=0) 
@@ -108,13 +108,19 @@ class DDPMPipeline:
             # TODO: 1. predict noise model_output
             model_output = self.unet.forward(model_input, t, c=c)
             
-            if guidance_scale is not None or guidance_scale != 1.0:
+            if guidance_scale is not None and guidance_scale != 1.0:
                 # TODO: implement cfg
                 uncond_model_output, cond_model_output = model_output.chunk(2) #split model output
                 model_output = uncond_model_output + guidance_scale * (cond_model_output - uncond_model_output)
             
             # TODO: 2. compute previous image: x_t -> x_t-1 using scheduler
-            image = self.scheduler.step(image, model_output, t)
+            image = self.scheduler.step(
+                model_output=model_output,
+                timestep=t,
+                sample=image,
+                generator=generator,
+            )
+
 
         # NOTE: this is for latent DDPM
         # TODO: use VQVAE to get final image
