@@ -10,16 +10,16 @@ from utils import randn_tensor
 
 class DDPMPipeline:
     def __init__(self, unet, scheduler, vae=None, class_embedder=None):
-        self.unet = unet
-        self.scheduler = scheduler
+        self.unet = unet #neural network used to predict noise
+        self.scheduler = scheduler #noise scheduler
         
         # NOTE: this is for latent DDPM
-        self.vae = None
+        self.vae = None #Variational Autoencoder for latent space transformations
         if vae is not None:
             self.vae = vae
             
         # NOTE: this is for CFG
-        if class_embedder is not None:
+        if class_embedder is not None: #Used for conditional generation (class-conditional image generation)
             self.class_embedder = class_embedder
 
     def numpy_to_pil(self, images):
@@ -79,55 +79,59 @@ class DDPMPipeline:
                 assert len(classes) == batch_size, "Length of classes must be equal to batch_size"
                 classes = torch.tensor(classes, device=device)
             
-            # TODO: get uncond classes
-            uncond_classes = None 
+            # TODO: get uncond classes (unconditional classes (same shape as classes but all zeros))
+            uncond_classes = torch.zeros_like(classes)
             # TODO: get class embeddings from classes
-            class_embeds = None 
+            class_embeds = self.class_embedder(classes)
             # TODO: get uncon class embeddings
-            uncond_embeds = None 
+            uncond_embeds = self.class_embedder(uncond_classes)
         
-        # TODO: starts with random noise
-        image =  randn_tensor(image_shape, generator=generator, device=device)
+        # TODO: starts with random noise (generate initial random noise tensor)
+        image = randn_tensor(image_shape, generator=generator, device=device) # randn_tensor(image_shape, generator=generator, device=device)
 
-        # TODO: set step values using set_timesteps of scheduler
-        # self.scheduler = None
-        self.scheduler.set_timesteps(num_inference_steps) # For DDIM, num_inference_steps should be the reduced step count.
+        # TODO: set step values using steps of scheduler
+        self.scheduler.set_timesteps(num_inference_steps, device=device)
         
         # TODO: inverse diffusion process with for loop
         for t in self.progress_bar(self.scheduler.timesteps):
             
             # NOTE: this is for CFG
-            if guidance_scale is not None or guidance_scale != 1.0:
+            if guidance_scale is not None and guidance_scale != 1.0:
                 # TODO: implement cfg
-                model_input = None 
-                c = None 
+                model_input =  torch.cat([image] * 2)
+                c = torch.cat([uncond_embeds, class_embeds], dim=0) 
             else:
-                model_input = None 
+                model_input = image 
                 # NOTE: leave c as None if you are not using CFG
                 c = None
             
             # TODO: 1. predict noise model_output
-            model_output = None
+            model_output = self.unet.forward(model_input, t, c=c)
             
-            if guidance_scale is not None or guidance_scale != 1.0:
+            if guidance_scale is not None and guidance_scale != 1.0:
                 # TODO: implement cfg
-                uncond_model_output, cond_model_output = model_output.chunk(2)
-                model_output = None
+                uncond_model_output, cond_model_output = model_output.chunk(2) #split model output
+                model_output = uncond_model_output + guidance_scale * (cond_model_output - uncond_model_output)
             
             # TODO: 2. compute previous image: x_t -> x_t-1 using scheduler
-            image = None 
-            
-        
+            image = self.scheduler.step(
+                model_output=model_output,
+                timestep=t,
+                sample=image,
+                generator=generator,
+            )
+
+
         # NOTE: this is for latent DDPM
         # TODO: use VQVAE to get final image
         if self.vae is not None:
             # NOTE: remember to rescale your images
-            image = None 
+            image = self.vae.decode(image)  # scale latent images 
             # TODO: clamp your images values
-            image = None 
-        
+            image = torch.clamp(image, -1.0, 1.0)
+
         # TODO: return final image, re-scale to [0, 1]
-        image = None 
+        image = (image + 1.0) / 2.0
         
         # convert to PIL images
         image = image.cpu().permute(0, 2, 3, 1).numpy()
