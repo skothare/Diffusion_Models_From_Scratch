@@ -1,21 +1,28 @@
+# sampler selection
+use_ddim: true # false --> DDPM; true --> DDIM
+eta: 0.0 # DDIM noise control; 0 is totally deterministic.
+# scheduler/model
+clip_sample: true
+clip_sample_range: 1.0
+
 run_name: ddpm
 seed: 42
-data_dir: ./data
+data_dir: ./data # Adjust the data directory accordingly.
 image_size: 128
-batch_size: 640
+batch_size: 64 # Previously 640 but start with 64 first
 num_workers: 8
-num_classes: #NUM_CLASSES
+num_classes: 100
 num_epochs: 50
-learning_rate: 1e-3
-weight_decay: 0.1
-num_train_timesteps: #train timesteps
-num_inference_steps: #INFERENCE_TIMESTEPS
-beta_start: #BETA START
-beta_end: #BETA END
-beta_schedule: #BETA SCHEDULE
+learning_rate: 1e-4
+weight_decay: 1e-4
+num_train_timesteps: 1000 #train timesteps
+num_inference_steps: 50
+beta_start: 1e-4
+beta_end: 0.02
+beta_schedule: linear # confirm depending on the scheduler's compatability
 
 variance_type: fixed_small
-predictor_type: epsilon
+prediction_type: epsilon
 unet_in_size: 128
 unet_in_ch: 3
 unet_ch: 128

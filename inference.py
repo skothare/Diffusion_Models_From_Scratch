@@ -74,11 +74,18 @@ def main():
         
     # scheduler
     if args.use_ddim:
-        shceduler_class = DDIMScheduler
+        scheduler_class = DDIMScheduler(
+                betas=betas,                         
+                num_inference_steps=50,              
+                prediction_type="epsilon",
+                clip_sample=True,
+                clip_sample_range=1.0,
+        )
+        scheduler_class.eta = 0.0
     else:
-        shceduler_class = DDPMScheduler
+        scheduler_class = DDPMScheduler
     # TOOD: scheduler
-    scheduler = shceduler_class(None)
+    scheduler = scheduler_class(None)
 
     # load checkpoint
     load_checkpoint(unet, scheduler, vae=vae, class_embedder=class_embedder, checkpoint_path=args.ckpt)
@@ -87,7 +94,7 @@ def main():
     pipeline = DDPMPipeline(None)
 
     
-    logger.info("***** Running Infrence *****")
+    logger.info("***** Running Inference *****")
     
     # TODO: we run inference to generation 5000 images
     # TODO: with cfg, we generate 50 images per class 
