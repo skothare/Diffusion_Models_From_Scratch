@@ -71,7 +71,10 @@ class DDPMPipeline:
         # NOTE: this is for CFG
         if classes is not None or guidance_scale is not None:
             assert hasattr(self, "class_embedder"), "class_embedder is not defined"
-        
+
+        # Initialize optional CFG embeddings (to avoid UnboundLocalError) - SK 29Oct2025
+        class_embeds = None
+        uncond_embeds = None
         if classes is not None:
             # convert classes to tensor
             if isinstance(classes, int):
@@ -107,7 +110,7 @@ class DDPMPipeline:
             else:
                 model_input = image 
                 # NOTE: leave c as None if you are not using CFG
-                c = class_embeds
+                c = None # No class conditioning if not using CFG. SK 29Oct2025.
             
             # TODO: 1. predict noise model_output
             model_output = self.unet.forward(model_input, t, c=c)

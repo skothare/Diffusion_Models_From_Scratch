@@ -6,6 +6,7 @@ import ruamel.yaml as yaml
 import torch
 import wandb 
 import logging 
+import torch, os, shutil
 from logging import getLogger as get_logger
 from tqdm import tqdm 
 from PIL import Image
@@ -17,7 +18,7 @@ from torchvision.utils  import make_grid
 from models import UNet, VAE, ClassEmbedder
 from schedulers import DDPMScheduler, DDIMScheduler
 from pipelines import DDPMPipeline
-from utils import seed_everything, init_distributed_device, is_primary, AverageMeter, str2bool, save_checkpoint
+from utils import seed_everything, init_distributed_device, is_primary, AverageMeter, str2bool, save_checkpoint # Used for save_checkpoint
 from torch.utils.data import DataLoader, DistributedSampler
 
 
@@ -34,6 +35,8 @@ def parse_args():
 
     # data 
     parser.add_argument("--data_dir", type=str, default='./data/imagenet100_128x128/train', help="data folder") 
+    parser.add_argument("--val_dir", type=str, default=None,
+                        help="optional separate validation folder (ImageFolder layout)")
     parser.add_argument("--image_size", type=int, default=128, help="image size")
     parser.add_argument("--batch_size", type=int, default=4, help="per gpu batch size")
     parser.add_argument("--num_workers", type=int, default=8, help="batch size")
@@ -134,6 +137,10 @@ def main():
         transforms.ToTensor(),  # Converts to [0, 1] range
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # Normalizes to [-1, 1] range
     ])
+    val_tf = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5]),
+    ])
     # TODO: use image folder for your train dataset
     train_dataset = datasets.ImageFolder(root=args.data_dir, transform=transform)
 
@@ -156,6 +163,24 @@ def main():
         num_workers=args.num_workers,
         pin_memory=True,
     )
+
+    # Implement val_loader -SK 29Oct2025
+    val_dataset, val_loader = None, None
+    val_dir = args.val_dir or args.data_dir.replace("/train", "/val")
+    if os.path.isdir(val_dir):
+        val_dataset = datasets.ImageFolder(root=val_dir, transform=val_tf)
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
+        if is_primary(args):
+            logger.info(f"Validation set found at {val_dir} with {len(val_dataset)} images.")
+    else:
+        if is_primary(args):
+            logger.info("No separate validation directory found; using small no-grad sample from train set for val loss.")
 
     # calculate total batch_size
     total_batch_size = args.batch_size * args.world_size 
@@ -214,7 +239,7 @@ def main():
     # send to device
     # explicitly move the model to the same device as the training tensors- SK 29Oct2025.
     unet = unet.to(device)
-    noise_scheduler
+    noise_scheduler = noise_scheduler.to(device)
     if vae:
         vae = vae.to(device)
     if class_embedder:
@@ -266,6 +291,9 @@ def main():
     else:
         scheduler_wo_ddp = noise_scheduler
     
+    # ensure the pipeline’s scheduler is on the same device
+    scheduler_wo_ddp = scheduler_wo_ddp.to(device)
+
     # TODO: setup evaluation pipeline
     # NOTE: this pipeline is not differentiable and only for evaluatin
     pipeline = DDPMPipeline(
@@ -304,6 +332,11 @@ def main():
         logger.info(f"  Total optimization steps = {args.max_train_steps}")
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(args.max_train_steps), disable=not is_primary(args))
+
+    # EARLY-STOPPING SETUP -SK 29Oct2025
+    best_val_loss = float('inf') # Initialize
+    patience = 5 # stop after 5 epochs of no improvement
+    patience_counter=0
 
     # training
     for epoch in range(args.num_epochs):
@@ -403,7 +436,73 @@ def main():
 
         # validation
         # send unet to evaluation mode
-        unet.eval()        
+        unet.eval()    
+
+        # EARLY_STOPPING: Validation loss calculation -SK 29Oct2025
+        """
+        Logic:
+        1. Diffusion loss is an expectation over data, random noise, and random noise t: Ex,ϵ,t​[∥ϵ−ϵθ​(xt​,t)∥2]
+        2. So averaging the validation loss over a few mini-batches gives a realiable estimate with low variance of this expectation
+        """
+        val_loss_total = 0.0
+        val_steps = 0
+        loader_for_val = val_loader if val_loader is not None else train_loader
+        MAX_VAL_STEPS = None if val_loader is not None else 10
+
+        with torch.no_grad(): # No tracking of gradients during validation
+            for i, (images, labels) in enumerate(loader_for_val):
+                if MAX_VAL_STEPS is not None and i >= MAX_VAL_STEPS:
+                    break
+                images = images.to(device)
+                # Mimic the process of corrupting with noise
+                noise = torch.randn_like(images)
+                B = images.size(0)
+                timesteps = torch.randint(
+                    low=0, high=args.num_train_timesteps, size=(B,), device=device, dtype=torch.long
+                )
+                noisy_images = noise_scheduler.add_noise(images, noise, timesteps) # Add noise with a scheduler.
+                model_pred = unet(noisy_images, timesteps, c=None) # Predict ϵ=ϵ_θ​(xt​,t)
+                val_loss_total += F.mse_loss(model_pred, noise).item() # COmpute the MSE loss 
+                val_steps += 1
+        val_loss = val_loss_total / max(1, val_steps) # Average across all batches
+        # EARLY_STOPPING CHECK:
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            # save best model
+            if is_primary(args):
+                torch.save({
+                    "epoch": epoch + 1,
+                    "val_loss": float(val_loss),
+                    "args": vars(args),
+                    "unet": unet_wo_ddp.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "lr_scheduler": lr_scheduler.state_dict(),
+                    # Optional if you want to resume CFG:
+                    # "class_embedder": (class_embedder_wo_ddp.state_dict() if class_embedder_wo_ddp else None),
+                }, os.path.join(save_dir, "best.pt"))
+                logger.info(f"Saved BEST checkpoint: {os.path.join(save_dir, 'best.pt')}  (val_loss={val_loss:.6f})")
+
+        else:
+            patience_counter += 1
+            logger.info(f"No improvement for {patience_counter} epoch(s).")
+            if patience_counter >= patience:
+                logger.info("Early stopping triggered.")
+                break
+                
+        # Log the metrics in wandb
+        if is_primary(args):
+            wandb_logger.log({
+                'epoch': epoch + 1,
+                'train_loss_epoch_avg': loss_m.avg,   # epoch-avg of train loss
+                'val_loss': val_loss,
+                'lr': lr_scheduler.get_last_lr()[0],  # Log learning rate
+                })
+            wandb.run.summary['best_val_loss'] = best_val_loss
+            wandb.run.summary['best_epoch'] = epoch + 1 if val_loss <= best_val_loss else wandb.run.summary.get('best_epoch', epoch + 1)
+
+        # -----------   END EARLY STOPPING LOGIC
+        #  
         generator = torch.Generator(device=device)
         generator.manual_seed(epoch + args.seed)
         
@@ -429,9 +528,19 @@ def main():
         if is_primary(args):
             wandb_logger.log({'gen_images': wandb.Image(grid_image)})
             
-        # save checkpoint
+        # save checkpoint - Updated to use torch.save()- SK 29Oct2025
         if is_primary(args):
-            save_checkpoint(unet_wo_ddp, scheduler_wo_ddp, vae_wo_ddp, class_embedder, optimizer, epoch, save_dir=save_dir)
+            torch.save({
+                "epoch": epoch + 1,
+                "val_loss": float(val_loss),
+                "args": vars(args),
+                "unet": unet_wo_ddp.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "lr_scheduler": lr_scheduler.state_dict(),
+                # Optional:
+                # "class_embedder": (class_embedder_wo_ddp.state_dict() if class_embedder_wo_ddp else None),
+            }, os.path.join(save_dir, "last.pt"))
+            logger.info(f"Saved LAST checkpoint: {os.path.join(save_dir, 'last.pt')}")
 
 
 if __name__ == '__main__':
