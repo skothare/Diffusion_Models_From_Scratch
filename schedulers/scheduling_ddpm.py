@@ -194,7 +194,9 @@ class DDPMScheduler(nn.Module):
             sqrt_alpha_prod = sqrt_alpha_prod.unsqueeze(-1)
             
         # TODO: get sqrt one miucs alphas
-        sqrt_one_minus_alpha_prod = (1 - sqrt_alpha_prod).sqrt()
+        #sqrt_one_minus_alpha_prod = (1 - sqrt_alpha_prod).sqrt()
+        #potential fix 10_31:
+        sqrt_one_minus_alpha_prod = (1 - alphas_cumprod[timesteps]).sqrt()
         #sqrt_one_minus_alpha_prod = None 
         while len(sqrt_one_minus_alpha_prod.shape) < len(original_samples.shape):
             sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.unsqueeze(-1)
@@ -236,17 +238,26 @@ class DDPMScheduler(nn.Module):
         
         # TODO: 1. compute alphas, betas
         #alphas control how much of the original data is kept at each timestep
-        alpha_prod_t = self.alphas_cumprod[t] 
-        alpha_prod_t_prev = self.alphas_cumprod[prev_t] 
-        beta_prod_t = 1 - (alpha_prod_t / alpha_prod_t_prev) 
-        beta_prod_t_prev = 1 - alpha_prod_t_prev 
-        current_alpha_t = alpha_prod_t 
-        current_beta_t = beta_prod_t 
+        # alpha_prod_t = self.alphas_cumprod[t] 
+        # alpha_prod_t_prev = self.alphas_cumprod[prev_t] 
+        # beta_prod_t = 1 - (alpha_prod_t / alpha_prod_t_prev) 
+        # beta_prod_t_prev = 1 - alpha_prod_t_prev 
+        # current_alpha_t = alpha_prod_t 
+        # current_beta_t = beta_prod_t 
+        
+        #potential fix 10_31
+        alpha_t = self.alphas[t]
+        alpha_prod_t = self.alphas_cumprod[t]
+        alpha_prod_t_prev = self.alphas_cumprod[prev_t] if t > 0 else torch.tensor(1.0, device=sample.device)
+        beta_t = self.betas[t]
 
         # TODO: 2. compute predicted original sample from predicted noise also called
         # "predicted x_0" of formula (15) from https://arxiv.org/pdf/2006.11239.pdf
         if self.prediction_type == 'epsilon':
-            pred_original_sample = (sample - (1 - current_alpha_t).sqrt()*model_output) / (current_alpha_t).sqrt()
+            #pred_original_sample = (sample - (1 - current_alpha_t).sqrt()*model_output) / (current_alpha_t).sqrt()
+            #potential fix 10_31
+            pred_original_sample = (sample - (1 - alpha_prod_t).sqrt() * model_output) / alpha_prod_t.sqrt()
+
         else:
             raise NotImplementedError(f"Prediction type {self.prediction_type} not implemented.")
 
@@ -258,8 +269,13 @@ class DDPMScheduler(nn.Module):
 
         # TODO: 4. Compute coefficients for pred_original_sample x_0 and current sample x_t
         # See formula (7) from https://arxiv.org/pdf/2006.11239.pdf
-        pred_original_sample_coeff = ((alpha_prod_t_prev).sqrt() * current_beta_t)/ (1 - alpha_prod_t)
-        current_sample_coeff = (alpha_prod_t.sqrt() * (1 - alpha_prod_t_prev)) / (1 - alpha_prod_t)
+        # pred_original_sample_coeff = ((alpha_prod_t_prev).sqrt() * current_beta_t)/ (1 - alpha_prod_t)
+        # current_sample_coeff = (alpha_prod_t.sqrt() * (1 - alpha_prod_t_prev)) / (1 - alpha_prod_t)
+        
+        #potential fix 10_31
+        pred_original_sample_coeff = beta_t * alpha_prod_t_prev.sqrt() / (1 - alpha_prod_t)
+        current_sample_coeff = alpha_t.sqrt() * (1 - alpha_prod_t_prev) / (1 - alpha_prod_t)
+
 
         # 5. Compute predicted previous sample µ_t
         # See formula (7) from https://arxiv.org/pdf/2006.11239.pdf
