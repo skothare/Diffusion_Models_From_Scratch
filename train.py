@@ -1,5 +1,6 @@
 import os 
-import sys 
+import sys
+import gdown 
 import argparse
 import numpy as np
 import ruamel.yaml as yaml
@@ -11,6 +12,9 @@ from logging import getLogger as get_logger
 from tqdm import tqdm 
 from PIL import Image
 import torch.nn.functional as F
+
+from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics.image.inception import InceptionScore
 
 from torchvision import datasets, transforms
 from torchvision.utils  import make_grid
@@ -87,6 +91,14 @@ def parse_args():
     # checkpoint path for inference
     parser.add_argument("--ckpt", type=str, default=None, help="checkpoint path for inference")
     
+    # evaluation
+    parser.add_argument("--eval_fid_is", type=str2bool, default=False, 
+                    help="calculate FID and IS during validation")
+    parser.add_argument("--eval_samples", type=int, default=1000, 
+                        help="number of samples to generate for FID/IS evaluation")
+    parser.add_argument("--eval_frequency", type=int, default=5, 
+                        help="evaluate FID/IS every N epochs")
+
     # first parse of command-line args to check for config file
     args = parser.parse_args()
     
@@ -100,6 +112,117 @@ def parse_args():
     # re-parse command-line args to overwrite with any command-line inputs
     args = parser.parse_args()
     return args
+
+def calculate_fid_is(pipeline, val_loader, args, device, num_samples=1000):
+    """Calculate FID and IS scores"""
+    
+    print(f"\nCalculating FID and IS with {num_samples} samples...")
+    
+    # Initialize metrics
+    fid = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+    inception_score = InceptionScore(normalize=True).to(device)
+    
+    # Process real images for FID
+    real_images_processed = 0
+    for images, _ in val_loader:
+        if real_images_processed >= num_samples:
+            break
+        images = images.to(device)
+        
+        # Handle latent DDPM case - we need pixel space images
+        if images.shape[1] != 3 or images.shape[2] != args.image_size:
+            # Skip if we're in latent space, need to use different approach
+            continue
+            
+        images = torch.clamp(images, -1, 1)  # Clamp to [-1, 1]
+        images = (images + 1) / 2  # Convert to [0, 1]
+        
+        batch_size = min(images.shape[0], num_samples - real_images_processed)
+        images = images[:batch_size]
+        
+        images_uint8 = (images * 255).to(torch.uint8)
+        fid.update(images_uint8, real=True)
+        real_images_processed += batch_size
+    
+    # Generate fake images
+    print(f"Generating {num_samples} samples...")
+    all_fake_images = []
+    batch_size = 32
+    num_batches = (num_samples + batch_size - 1) // batch_size
+    
+    with torch.no_grad():
+        for i in tqdm(range(num_batches), desc="Generating", disable=not is_primary(args)):
+            current_batch_size = min(batch_size, num_samples - i * batch_size)
+            
+            # Sample classes if using CFG
+            if args.use_cfg:
+                classes = torch.randint(0, args.num_classes, (current_batch_size,), device=device)
+            else:
+                classes = None
+            
+            # Generate images
+            eta = args.ddim_eta if hasattr(args, 'ddim_eta') else 0.0
+            guidance_scale = args.cfg_guidance_scale if args.use_cfg else 1.0
+            
+            batch_images = pipeline(
+                batch_size=current_batch_size,
+                num_inference_steps=args.num_inference_steps,
+                classes=classes,
+                eta=eta,
+                guidance_scale=guidance_scale
+            )
+            
+            # Convert PIL images to tensors [0, 1]
+            batch_tensors = []
+            for img in batch_images:
+                img_tensor = transforms.ToTensor()(img)
+                batch_tensors.append(img_tensor)
+            
+            batch_tensors = torch.stack(batch_tensors)
+            all_fake_images.append(batch_tensors)
+    
+    all_fake_images = torch.cat(all_fake_images, dim=0)
+    
+    # Process fake images for FID and IS
+    print("Processing generated images for metrics...")
+    batch_size_metric = 50
+    for i in range(0, len(all_fake_images), batch_size_metric):
+        batch = all_fake_images[i:i+batch_size_metric].to(device)
+        batch = torch.clamp(batch, 0, 1)
+        
+        # FID
+        batch_uint8 = (batch * 255).to(torch.uint8)
+        fid.update(batch_uint8, real=False)
+        
+        # IS
+        inception_score.update(batch)
+    
+    # Compute metrics
+    print("Computing metrics...")
+    fid_score = fid.compute()
+    is_mean, is_std = inception_score.compute()
+    
+    return {
+        'fid': fid_score.item(),
+        'is_mean': is_mean.item(),
+        'is_std': is_std.item()
+    }
+
+def download_vae_checkpoint():
+    """Download VAE checkpoint if it doesn't exist"""
+    ckpt_path = 'pretrained/model.ckpt'
+    
+    # Create pretrained directory if it doesn't exist
+    os.makedirs('pretrained', exist_ok=True)
+    
+    # Only download if file doesn't exist
+    if not os.path.exists(ckpt_path):
+        logger.info("Downloading VAE checkpoint from Google Drive...")
+        url = "https://drive.google.com/file/d/1SwgvXbliLEp6xfQyYvT1lOQpVXTmxoTO/view?usp=sharing"
+        gdown.download(url, ckpt_path, quiet=False, fuzzy=True)
+        logger.info(f"VAE checkpoint downloaded to {ckpt_path}")
+    else:
+        logger.info(f"VAE checkpoint already exists at {ckpt_path}")
     
     
 def main():
@@ -222,6 +345,8 @@ def main():
     # NOTE: this is for latent DDPM 
     vae = None
     if args.latent_ddpm:
+        # Download checkpoint if needed
+        download_vae_checkpoint()
         vae = VAE()
         # NOTE: do not change this
         vae.init_from_ckpt('pretrained/model.ckpt')
@@ -502,6 +627,51 @@ def main():
             wandb.run.summary['best_epoch'] = epoch + 1 if val_loss <= best_val_loss else wandb.run.summary.get('best_epoch', epoch + 1)
 
         # -----------   END EARLY STOPPING LOGIC
+
+        # =====================================================
+        # FID/IS EVALUATION (if enabled)
+        # =====================================================
+        if args.eval_fid_is and (epoch + 1) % args.eval_frequency == 0:
+            if is_primary(args):
+                logger.info(f"\n{'='*60}")
+                logger.info("EVALUATING FID AND IS")
+                logger.info(f"{'='*60}")
+                
+                try:
+                    metrics = calculate_fid_is(
+                        pipeline=pipeline,
+                        val_loader=val_loader if val_loader else train_loader,
+                        args=args,
+                        device=device,
+                        num_samples=args.eval_samples
+                    )
+                    
+                    logger.info(f"\nEpoch {epoch+1} Metrics:")
+                    logger.info(f"  FID:  {metrics['fid']:.4f}")
+                    logger.info(f"  IS:   {metrics['is_mean']:.4f} ± {metrics['is_std']:.4f}")
+                    logger.info(f"{'='*60}\n")
+                    
+                    # Log to wandb
+                    wandb_logger.log({
+                        'fid': metrics['fid'],
+                        'is_mean': metrics['is_mean'],
+                        'is_std': metrics['is_std'],
+                        'epoch': epoch + 1
+                    })
+                    
+                    # Save metrics to file
+                    metrics_file = os.path.join(output_dir, 'metrics_history.txt')
+                    with open(metrics_file, 'a') as f:
+                        f.write(f"Epoch {epoch+1}: FID={metrics['fid']:.4f}, IS={metrics['is_mean']:.4f}±{metrics['is_std']:.4f}\n")
+                        
+                except Exception as e:
+                    logger.error(f"Error calculating FID/IS: {e}")
+        
+        # Continue with your existing code for generating sample images
+        generator = torch.Generator(device=device)
+        generator.manual_seed(epoch + args.seed)
+        #######################
+        
         #  
         generator = torch.Generator(device=device)
         generator.manual_seed(epoch + args.seed)
