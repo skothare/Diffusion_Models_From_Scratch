@@ -84,7 +84,8 @@ class DDPMPipeline:
                 classes = torch.tensor(classes, device=device)
             
             # TODO: get uncond classes (unconditional classes (same shape as classes but all zeros))
-            uncond_classes = torch.zeros_like(classes)
+            #uncond_classes = torch.zeros_like(classes)
+            uncond_classes = torch.full_like(classes, getattr(self.class_embedder, "uncond_idx", self.class_embedder.num_classes))
             # TODO: get class embeddings from classes
             class_embeds = self.class_embedder(classes)
             # TODO: get uncon class embeddings
@@ -105,12 +106,14 @@ class DDPMPipeline:
             # NOTE: this is for CFG
             if guidance_scale is not None and guidance_scale != 1.0:
                 # TODO: implement cfg
-                model_input =  torch.cat([image] * 2)
+                #model_input =  torch.cat([image] * 2)
+                model_input = torch.cat([image, image], dim=0)
                 c = torch.cat([uncond_embeds, class_embeds], dim=0) 
             else:
                 model_input = image 
                 # NOTE: leave c as None if you are not using CFG
                 c = None # No class conditioning if not using CFG. SK 29Oct2025.
+                #c = class_embeds
             
             # TODO: 1. predict noise model_output
             model_output = self.unet.forward(model_input, t, c=c)
@@ -145,9 +148,12 @@ class DDPMPipeline:
         # TODO: use VQVAE to get final image
         if self.vae is not None:
             # NOTE: remember to rescale your images
+            image = image / 0.1845 # scale latent images
             image = self.vae.decode(image)  # scale latent images 
             # TODO: clamp your images values
             image = torch.clamp(image, -1.0, 1.0)
+        else:
+            image = image.clamp(-1.0, 1.0)
 
         # TODO: return final image, re-scale to [0, 1]
         image = (image + 1.0) / 2.0
