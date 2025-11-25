@@ -51,7 +51,12 @@ def main():
     logger.info(f"Number of parameters: {num_params / 10 ** 6:.2f}M")
     
     # TODO: ddpm shceduler
-    scheduler = DDPMScheduler(None )
+    scheduler = DDPMScheduler(
+        num_train_timesteps=args.num_train_timesteps,
+        beta_start=args.beta_start,
+        beta_end=args.beta_end,
+        beta_schedule=args.beta_schedule
+    )
     # vae 
     vae = None
     if args.latent_ddpm:        
@@ -62,7 +67,11 @@ def main():
     class_embedder = None
     if args.use_cfg:
         # TODO: class embeder
-        class_embedder = ClassEmbedder(None)
+        class_embedder = ClassEmbedder(
+            embed_dim=args.unet_ch,
+            n_classes=args.num_classes,
+            cond_drop_rate=0.0
+        )
         
     # send to device
     unet = unet.to(device)
@@ -91,7 +100,10 @@ def main():
     load_checkpoint(unet, scheduler, vae=vae, class_embedder=class_embedder, checkpoint_path=args.ckpt)
     
     # TODO: pipeline
-    pipeline = DDPMPipeline(None)
+    pipeline = DDPMPipeline(unet=unet, 
+                            scheduler=scheduler, 
+                            vae=vae, 
+                            class_embedder=class_embedder)
 
     
     logger.info("***** Running Inference *****")
@@ -114,7 +126,7 @@ def main():
             all_images.append(gen_images)
     
     # TODO: load validation images as reference batch
-    
+    all_images = []
     
     # TODO: using torchmetrics for evaluation, check the documents of torchmetrics
     import torchmetrics 
