@@ -3,3 +3,6 @@
 
 # Model checkpoints
 *.ckpt
+
+# macOS Finder metadata (local Mac files)
+.DS_Store
