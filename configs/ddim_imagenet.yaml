@@ -19,6 +19,7 @@ batch_size: 32  # like Juhi and we used in the CLI for CIFAR10
 num_workers: 0 # Switched from 8-->2-->0 due to RuntimeError in DataLoader worker process 0.
 num_classes: 100
 num_epochs: 100
+patience: 100 # For early-stopping
 learning_rate: 2.0e-4
 weight_decay: 1.0e-5
 

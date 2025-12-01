@@ -55,6 +55,7 @@ def parse_args():
     parser.add_argument("--grad_clip", type=float, default=1.0, help="gradient clip")
     parser.add_argument("--seed", type=int, default=42, help="random seed")
     parser.add_argument("--mixed_precision", type=str, default='none', choices=['fp16', 'bf16', 'fp32', 'none'], help='mixed precision')
+    parser.add_argument("--patience", type=int, default=5, help="early stopping patience") 
     
     # ddpm
     parser.add_argument("--num_train_timesteps", type=int, default=1000, help="ddpm training timesteps")
@@ -464,7 +465,7 @@ def main():
 
     # EARLY-STOPPING SETUP -SK 29Oct2025
     best_val_loss = float('inf') # Initialize
-    patience = 5 # stop after 5 epochs of no improvement
+    patience = args.patience # stop after 5 epochs of no improvement
     patience_counter=0
 
     # training
