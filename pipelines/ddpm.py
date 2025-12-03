@@ -85,7 +85,8 @@ class DDPMPipeline:
             
             # TODO: get uncond classes (unconditional classes (same shape as classes but all zeros))
             #uncond_classes = torch.zeros_like(classes)
-            uncond_classes = torch.full_like(classes, getattr(self.class_embedder, "uncond_idx", self.class_embedder.num_classes))
+            #uncond_classes = torch.full_like(classes, getattr(self.class_embedder, "uncond_idx", self.class_embedder.num_classes))
+            uncond_classes = torch.full_like(classes, getattr(self.class_embedder, "uncond_idx"))
             # TODO: get class embeddings from classes
             class_embeds = self.class_embedder(classes)
             # TODO: get uncon class embeddings
