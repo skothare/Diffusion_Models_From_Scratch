@@ -1,24 +1,48 @@
 import torch
 import os
 
-def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=None, checkpoint_path='checkpoints/checkpoint.pth'):
+# def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=None, checkpoint_path='checkpoints/checkpoint.pth'):
     
+#     print("loading checkpoint")
+#     checkpoint = torch.load(checkpoint_path)
+    
+#     print("loading unet")
+#     unet.load_state_dict(checkpoint['unet_state_dict'])
+#     print("loading scheduler")
+#     scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    
+#     if vae is not None and 'vae_state_dict' in checkpoint:
+#         print("loading vae")
+#         vae.load_state_dict(checkpoint['vae_state_dict'])
+    
+#     if class_embedder is not None and 'class_embedder_state_dict' in checkpoint:
+#         print("loading class_embedder")
+#         class_embedder.load_state_dict(checkpoint['class_embedder_state_dict'])
+
+def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=None, checkpoint_path='checkpoints/last.pt'):
     print("loading checkpoint")
+    
+    # Load the checkpoint
     checkpoint = torch.load(checkpoint_path)
     
+    # Print out available keys for debugging
+    print("Available checkpoint keys:", checkpoint.keys())
+    
+    # Load UNet - this is the most critical component
     print("loading unet")
-    unet.load_state_dict(checkpoint['unet_state_dict'])
-    print("loading scheduler")
-    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    unet.load_state_dict(checkpoint['unet'])
     
-    if vae is not None and 'vae_state_dict' in checkpoint:
+    # Optional components
+    if vae is not None and 'vae' in checkpoint:
         print("loading vae")
-        vae.load_state_dict(checkpoint['vae_state_dict'])
+        vae.load_state_dict(checkpoint['vae'])
     
-    if class_embedder is not None and 'class_embedder_state_dict' in checkpoint:
+    if class_embedder is not None and 'class_embedder' in checkpoint:
         print("loading class_embedder")
-        class_embedder.load_state_dict(checkpoint['class_embedder_state_dict'])
+        class_embedder.load_state_dict(checkpoint['class_embedder'])
     
+    # Return some metadata if available
+    return checkpoint.get('epoch'), checkpoint.get('val_loss')
     
         
 
