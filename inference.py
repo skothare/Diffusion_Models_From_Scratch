@@ -11,6 +11,7 @@ from tqdm import tqdm
 from PIL import Image
 import torch.nn.functional as F
 
+import torchvision
 from torchvision import transforms, datasets
 from torchvision.utils  import make_grid
 
@@ -20,6 +21,8 @@ from pipelines import DDPMPipeline
 from utils import seed_everything, load_checkpoint
 
 from train import parse_args
+from pathlib import Path
+import json
 
 logger = get_logger(__name__)
 
@@ -221,7 +224,9 @@ def main():
     logger.info("Loading validation images for Frechet Inception Distance or Inception Score...")
     # We need real images to compare against. 
     # Assumes args.val_data_dir points to ImageNet validation folders.
-    val_data_dir = getattr(args, "val_data_dir", "data/val")
+    #val_data_dir = getattr(args, "val_data_dir", "data/val")
+    #CHANGE TO YOUR DIRECTORY
+    val_data_dir = getattr(args, "val_data_dir", "/jet/home/jgupta2/hw5_student_starter_code/data/imagenet100_128x128/validation")
     val_transform = transforms.Compose([
         transforms.Resize((args.unet_in_size, args.unet_in_size)),
         transforms.PILToTensor(),  # uint8 [0, 255]
@@ -250,7 +255,8 @@ def main():
     logger.info("Computing FID and Inception Score...")
     import torchmetrics 
     
-    from torchmetrics.image.fid import FrechetInceptionDistance, InceptionScore
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from torchmetrics.image.inception import InceptionScore
     
     # TODO: compute FID and IS
     # Initialize Metrics (feature=2048 is standard for FID)
@@ -275,6 +281,58 @@ def main():
 
     fid_score = fid.compute()
     is_mean, is_std = inception.compute()
+
+    
+    #Save a sample grid of generated images
+    
+    save_dir = Path(args.ckpt).parent.parent / "inference"
+    
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Saving sample generated images to {save_dir}")
+
+    torchvision.utils.save_image(
+        all_gen_tensor[:64] / 255.0,  # scale to [0, 1]
+        save_dir / "generated_samples.png",
+        nrow=10,
+        normalize=False,
+    )
+
+    # Save a few per-batch grids to quickly inspect 
+    max_extra_grids = min(len(all_images), 5)
+    for idx in range(max_extra_grids):
+        batch_tensor = all_images[idx].to(device)
+        torchvision.utils.save_image(
+            batch_tensor / 255.0,
+            save_dir / f"generated_batch_{idx:02d}.png",
+            nrow=10,
+            normalize=False,
+        )
+    
+    #save scores to a json file
+    scores = {
+        "FID": fid_score.item(),
+        "Inception_Score_Mean": is_mean.item(),
+        "Inception_Score_Std": is_std.item(),
+    }
+
+    scores_file = save_dir / "inference_scores.json"
+
+    with open(scores_file, "w") as f:
+        json.dump(scores, f, indent=4)
+    
+    wandb.init(
+        project=args.project_name if hasattr(args, "project_name") else "diffusion_inference",
+        name = f"inference_{os.path.basename(args.ckpt).split('.')[0]}",
+        config=vars(args),
+    )
+
+    wandb.log({
+        **scores, 
+        "sample_images": wandb.Image(str(save_dir / "generated_samples.png"))
+    })
+
+    wandb.finish()
 
     logger.info(f"FID: {fid_score.item():.4f}")
     logger.info(f"Inception Score: {is_mean.item():.4f} ± {is_std.item():.4f}")
