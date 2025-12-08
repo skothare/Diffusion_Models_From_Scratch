@@ -19,7 +19,7 @@ from torchmetrics.image.inception import InceptionScore
 from torchvision import datasets, transforms
 from torchvision.utils  import make_grid
 
-from models import UNet, VAE, ClassEmbedder
+from models import UNet, VAE, ClassEmbedder, DiffusionTransformer
 from schedulers import DDPMScheduler, DDIMScheduler
 from pipelines import DDPMPipeline
 from utils import seed_everything, init_distributed_device, is_primary, AverageMeter, str2bool, save_checkpoint # Used for save_checkpoint
@@ -77,6 +77,22 @@ def parse_args():
     parser.add_argument("--unet_num_res_blocks", type=int, default=2, help="unet number of res blocks")
     parser.add_argument("--unet_dropout", type=float, default=0.0, help="unet dropout")
     
+    # DiT
+    parser.add_argument("--dit_d_model", type=int, default=512)
+    parser.add_argument("--dit_depth", type=int, default=8)
+    parser.add_argument("--dit_n_heads", type=int, default=8)
+    parser.add_argument("--dit_patch_size", type=int, default=16)
+    parser.add_argument("--dit_mlp_ratio", type=float, default=4.0)
+
+    # model selection: UNet or Diffusion Transformer?
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="unet",
+        choices=["unet", "dit"],
+        help="Backbone type: 'unet' (default) or 'dit' (Diffusion Transformer)",
+    )
+
     # vae
     parser.add_argument("--latent_ddpm", type=str2bool, default=False, help="use vqvae for latent ddpm")
     
@@ -329,8 +345,35 @@ def main():
     
     # setup model
     logger.info("Creating model")
-    # unet
-    unet = UNet(input_size=args.unet_in_size, input_ch=args.unet_in_ch, T=args.num_train_timesteps, ch=args.unet_ch, ch_mult=args.unet_ch_mult, attn=args.unet_attn, num_res_blocks=args.unet_num_res_blocks, dropout=args.unet_dropout, conditional=args.use_cfg, c_dim=args.unet_ch)
+    # unet (or dit)
+    if args.model_type == "dit":
+        logger.info("Using Diffusion Transformer (DiT) backbone")
+        unet = DiffusionTransformer(
+            input_size=args.unet_in_size, 
+            input_ch=args.unet_in_ch,
+            T=args.num_train_timesteps,
+            d_model=args.dit_d_model,
+            depth=args.dit_depth,
+            n_heads=args.dit_n_heads,
+            patch_size=args.dit_patch_size,
+            mlp_ratio=args.dit_mlp_ratio,
+            conditional=args.use_cfg,
+            c_dim=args.unet_ch, # Match class embedder's embed_dim
+        )
+    else:
+        logger.info("Using UNet backbone")
+        unet = UNet(
+            input_size=args.unet_in_size, 
+            input_ch=args.unet_in_ch, 
+            T=args.num_train_timesteps, 
+            ch=args.unet_ch, 
+            ch_mult=args.unet_ch_mult, 
+            attn=args.unet_attn, 
+            num_res_blocks=args.unet_num_res_blocks, 
+            dropout=args.unet_dropout, 
+            conditional=args.use_cfg, 
+            c_dim=args.unet_ch)
+
     # preint number of parameters
     num_params = sum(p.numel() for p in unet.parameters() if p.requires_grad)
     logger.info(f"Number of parameters: {num_params / 10 ** 6:.2f}M")
@@ -588,6 +631,20 @@ def main():
                     break
                 images = images.to(device)
                 labels = labels.to(device)
+
+                # As in the training loop, add vae.encode (necessary for DiT latent execution in latent dimensions)
+                """
+                If latent_ddpm=True, must validate in *latent space*, not pixel space.
+
+                Suspected issue with not including vae.encode here (MUST FOR DiT!)
+                Validation shoulduse the same representation, otherwise:
+                    - Shape mismatch occurs for DiT/UNet (expecting 32x32 latents).
+                    - The validation loss no longer measures the task the model learned- incorrect
+                    - Early stopping selects the wrong checkpoint.
+                """
+                if vae is not None:
+                    images = vae.encode(images)
+                    images = images * 0.1845 # Multiplying the latent by 0.1845 rescales it so Var[z] ≈ 1
 
                 # Add class embedding logic
                 if class_embedder is not None and args.use_cfg:

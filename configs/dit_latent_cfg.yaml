@@ -1,8 +1,16 @@
 # SPECIFY RUN-NAME
-run_name: "SK-ddim_cfg_192-2346-07Dec"
+run_name: "SK-dit_latent_cfg-2218-05Dec"
+
+# DiT hyperparameters
+model_type: "dit"
+dit_d_model: 768
+dit_depth: 12
+dit_n_heads: 12
+dit_patch_size: 2 # 32/16 = 8 --> 8x8 = 64 tokens (LATENT!)
+dit_mlp_ratio: 4.0
+# lower patch size means final spatial structure.
 
 # Sampling / scheduler
-model_type: "unet"
 use_ddim: true  # use DDIM sampler
 ddim_eta: 0.0   # matches args.ddim_eta
 clip_sample: true
@@ -22,8 +30,8 @@ batch_size: 32  # like Juhi and we used in the CLI for CIFAR10
 num_workers: 0 # Switched from 8-->2-->0 due to RuntimeError in DataLoader worker process 0.
 num_classes: 100
 num_epochs: 200
-patience: 100 # For early-stopping
-learning_rate: 2.0e-4
+patience: 180 # For early-stopping
+learning_rate: 1.0e-4
 weight_decay: 1.0e-5
 
 # Diffusion schedule
@@ -37,18 +45,18 @@ variance_type: fixed_small
 prediction_type: epsilon
 
 # UNet
-unet_in_size: 128 # UNet input size 
+unet_in_size: 32 # Compressed latent size (after pretrained VAE's downsampling factor (4 here))- test using vae_shape.py
 unet_in_ch: 3
-unet_ch: 256
+unet_ch: 128
 unet_num_res_blocks: 2
 unet_ch_mult: [1, 2, 2, 4]
 unet_attn: [2, 3]
 unet_dropout: 0.1
 
 #  Extra features
-latent_ddpm: false
+latent_ddpm: true
 use_cfg: true
-cfg_guidance_scale: 2.0
+cfg_guidance_scale: 3.0 # was 2.0; larger == stronger semantics
 
 # FID / IS evaluation
 eval_fid_is: true

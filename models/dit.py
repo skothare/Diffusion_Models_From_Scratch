@@ -43,12 +43,12 @@ class PatchEmbed(nn.Module):
             stride=patch_size
         )
 
-        def forward(self, x):
-            # x: [B, C, H, W]
-            x = self.proj(x)   # [B, d_model, H/P, W/P]
-            x = x.flatten(2) # [B, d_model, N]
-            x = x.transpose(1, 2)  # [B, N, d_model]
-            return x
+    def forward(self, x):
+        # x: [B, C, H, W]
+        x = self.proj(x)   # [B, d_model, H/P, W/P]
+        x = x.flatten(2) # [B, d_model, N]
+        x = x.transpose(1, 2)  # [B, N, d_model]
+        return x
         
 class PatchUnembed(nn.Module):
     """

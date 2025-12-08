@@ -9,6 +9,7 @@
 
 # Ignore outputs, logs, checkpoints
 experiments/
+experiments
 wandb/
 slurm/
 
@@ -19,6 +20,8 @@ __pycache__/
 # Checkpoints & model weights
 *.pt
 *.ckpt
+pretrained
+pretrained/
 
 # Misc runtime files
 *.out

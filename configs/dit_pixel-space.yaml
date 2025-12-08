@@ -1,8 +1,15 @@
 # SPECIFY RUN-NAME
-run_name: "SK-ddim_cfg_192-2346-07Dec"
+run_name: "SK-NL_DiT-ddim-cfg-1417-06Dec"
+
+# DiT hyperparameters
+model_type: "dit"
+dit_d_model: 512
+dit_depth: 8
+dit_n_heads: 8
+dit_patch_size: 16 # 128/16 = 8 --> 8x8 = 64 tokens
+dit_mlp_ratio: 4.0
 
 # Sampling / scheduler
-model_type: "unet"
 use_ddim: true  # use DDIM sampler
 ddim_eta: 0.0   # matches args.ddim_eta
 clip_sample: true
@@ -39,7 +46,7 @@ prediction_type: epsilon
 # UNet
 unet_in_size: 128 # UNet input size 
 unet_in_ch: 3
-unet_ch: 256
+unet_ch: 128
 unet_num_res_blocks: 2
 unet_ch_mult: [1, 2, 2, 4]
 unet_attn: [2, 3]

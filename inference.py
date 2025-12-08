@@ -15,7 +15,7 @@ import torchvision
 from torchvision import transforms, datasets
 from torchvision.utils  import make_grid
 
-from models import UNet, VAE, ClassEmbedder
+from models import UNet, VAE, ClassEmbedder, DiffusionTransformer
 from schedulers import DDPMScheduler, DDIMScheduler
 from pipelines import DDPMPipeline
 from utils import seed_everything, load_checkpoint
@@ -50,19 +50,37 @@ def main():
     )
     
     # setup model
-    logger.info("Creating UNet model")
+    logger.info("Creating model for inference")
 
-    # unet
-    unet = UNet(
-        input_size=args.unet_in_size, 
-        input_ch=args.unet_in_ch, 
-        T=args.num_train_timesteps, 
-        ch=args.unet_ch, 
-        ch_mult=args.unet_ch_mult, 
-        attn=args.unet_attn, 
-        num_res_blocks=args.unet_num_res_blocks, 
-        dropout=args.unet_dropout, 
-        conditional=args.use_cfg, c_dim=args.unet_ch)
+    if args.model_type == "dit":
+        logger.info("Using Diffusion Transformer (DiT) backbone")
+        unet = DiffusionTransformer(
+            input_size=args.unet_in_size,   # 128 for pixel-space DiT, 32 for latent DiT
+            input_ch=args.unet_in_ch,
+            T=args.num_train_timesteps,
+            d_model=args.dit_d_model,
+            depth=args.dit_depth,
+            n_heads=args.dit_n_heads,
+            patch_size=args.dit_patch_size,
+            mlp_ratio=args.dit_mlp_ratio,
+            conditional=args.use_cfg,
+            c_dim=args.unet_ch,  # same as in train.py
+        )
+    else:
+        logger.info("Using UNet backbone")
+        unet = UNet(
+            input_size=args.unet_in_size,
+            input_ch=args.unet_in_ch,
+            T=args.num_train_timesteps,
+            ch=args.unet_ch,
+            ch_mult=args.unet_ch_mult,
+            attn=args.unet_attn,
+            num_res_blocks=args.unet_num_res_blocks,
+            dropout=args.unet_dropout,
+            conditional=args.use_cfg,
+            c_dim=args.unet_ch,
+        )
+
     
     # preint number of parameters
     num_params = sum(p.numel() for p in unet.parameters() if p.requires_grad)
@@ -161,8 +179,12 @@ def main():
     # required by torchmetrics to have a transform to convert PIL images (from pipeline ) to  uint8 Tensors [0-255] 
     pil_to_tensor = transforms.PILToTensor()
 
-    guidance_scale = getattr(args, "guidance_scale", None)
-    eta = getattr(args, "eta", 0.0) if args.use_ddim else None
+    """
+    Error identified if using config.yaml!
+    guidance_scale and ddim are named "cfg_guidance_scale" and "ddim_eta" in the configs. Hence, udpated those names in the two lines below. SK 07Dec2025.
+    """
+    guidance_scale = args.cfg_guidance_scale if args.use_cfg else None
+    eta = args.ddim_eta if args.use_ddim else None
     num_inference_steps = args.num_inference_steps
 
     # GENERATION:
@@ -226,11 +248,16 @@ def main():
     # Assumes args.val_data_dir points to ImageNet validation folders.
     #val_data_dir = getattr(args, "val_data_dir", "data/val")
     #CHANGE TO YOUR DIRECTORY
-    val_data_dir = getattr(args, "val_data_dir", "/jet/home/jgupta2/hw5_student_starter_code/data/imagenet100_128x128/validation")
+    val_data_dir = getattr(args, "val_dir", "/jet/home/jgupta2/hw5_student_starter_code/data/imagenet100_128x128/validation")
+    """
+    In val_transform, we updated from using args.unet_in_size to args.imagesize since FID/IS are always computed in pixel space. args.image_size is the dataset resolution in pixels/ -SK 07Dec2025.
+    """
     val_transform = transforms.Compose([
-        transforms.Resize((args.unet_in_size, args.unet_in_size)),
+        #transforms.Resize((args.unet_in_size, args.unet_in_size)),
+        transforms.Resize((args.image_size, args.image_size)),
         transforms.PILToTensor(),  # uint8 [0, 255]
     ])
+    
 
     val_dataset = datasets.ImageFolder(val_data_dir, transform=val_transform)
     val_loader = torch.utils.data.DataLoader(
