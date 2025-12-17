@@ -1,87 +1,44 @@
-# IDL25Fall-HW5
+# Comprehensive Evaluation of Diffusion & Transformer-Based Generative Models
 
-# Starter Code Usage
+![Project Title Image](image.png)
+![alt text](all_models_panel.gif)
 
-**Training**
+## Project Motivation
+Diffusion models have become the dominant framework for generative image synthesis, yet the practical trade-offs between sampling efficiency, architecture choice (U-Net vs. Transformer), and perceptual fidelity often remain abstract. 
 
-```
-python train.py --config configs/ddpm.yaml
-```
+**The goal of this project was to deconstruct these models by implementing them from first principles.** rather than relying on high-level libraries. By building custom schedulers, samplers, and backbone architectures from scratch, we sought to answer:  
+1.  **Efficiency:** How does Latent Diffusion (LDM) compare to Pixel-space diffusion in terms of training stability and quality?
+2.  **Fidelity:** What is the quantitative impact of Classifier-Free Guidance (CFG) and deterministic sampling (DDIM) on ImageNet-100?
+3.  **Architecture:** Can a Vision Transformer (DiT) replace the standard U-Net backbone in a low-resource setting?
 
-**Inference and Evaluating**
+## Results and Key Findings
 
-```
-python inference.py inference.py
-```
+We evaluated our models using **Fréchet Inception Distance (FID)** and **Inception Score (IS)** over 5,000 generated samples.
 
-# 1. Download the data
+| Model | VAE? | CFG? | Backbone | FID (Lower is better) | IS (Higher is better) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **DDPM** | No | No | UNet | 150.0 | 4.45 ± 0.10 |
+| **DDIM** | No | No | UNet | 152.1 | 5.59 ± 0.25 |
+| **DiT-VAE-CFG-8** | Yes | Yes | Transformer | 313.3 | **1.78 ± 0.02** |
+| **DDIM-VAE-CFG** | Yes | Yes | UNet | 168.2 | 5.29 ± 0.15 |
 
-Please first download the data from here: https://drive.google.com/drive/u/0/folders/1Hr8LU7HHPEad8ALmMo5cvisazsm6zE8Z
+### Analysis & Observations
+* **The Power of Guidance:** Classifier-Free Guidance (CFG) proved to be the single most effective technique for improving semantic coherence. As seen in our qualitative samples, CFG significantly reduced background noise and sharpened class-specific features.
+* **DDIM vs. DDPM:** While DDIM provided a massive speedup (50 steps vs 1000 steps), the perceptual quality was slightly sharper, though the FID scores remained comparable. This confirms that deterministic sampling retains distribution coverage while improving edge definition.
+* **Efficiency (Latent vs. Pixel):** Although Latent Diffusion (LDM) is typically used to reduce computational costs for high-resolution images, we observed diminishing returns at $128 \times 128$. The lightweight VAE provided negligible throughput gains while introducing reconstruction artifacts (information bottleneck). Consequently, **Pixel-space DDPM** achieved superior texture fidelity, suggesting that direct pixel modeling is preferable when resolution constraints are low.
+* **Fidelity (Impact of CFG & DDIM):** Classifier-Free Guidance (CFG) was the primary driver of quantitative performance, boosting Inception Scores significantly. Conversely, while DDIM provided a 20x speedup (50 vs. 1000 steps), it produced sharper edges at the cost of slight distribution shifts, confirming the efficiency-quality trade-off of deterministic sampling.
+* **Architecture (DiT vs. U-Net):** Our results highlight that Vision Transformers (DiT) are highly data-and-compute hungry. In our constrained resource setting, the standard U-Net backbone converged faster and achieved greater stability than the DiT, which required significantly more depth and careful hyperparameter tuning to match U-Net performance.
+* **DiT Scalability:** Our Diffusion Transformer (DiT) implementation showed that while Transformers are powerful, they are highly sensitive to depth and patch size. The smaller DiT (Depth=8) struggled to converge compared to the U-Net, highlighting the need for larger scale data and compute to unlock ViT performance in diffusion.
 
-After download please unzip the data with
+---
 
-```
-tar -xvf imagenet100_128x128.tar.gz
-```
+## 🛠️ Setup and Installation
 
-# 2.Implementing DDPM from Scratch
+### 1. Environment Setup
+We recommend using Conda to manage dependencies.
 
-This homework will start from implementing DDPM from scratch.
-
-We provide the basic code structure for you and you will be implementing the following modules (by filling all TODOs)):
-
-```
-1. pipelines/ddpm.py
-2. schedulers/scheduling_ddpm.py
-3. train.py
-4. configs/ddpm.yaml
-```
-
-A very basic U-Net architecture is provided to you, and you will need to improve the architecture for better performacne.
-
-# 3. Implementing DDIM
-
-Implement the DDIM from scratch:
-
-```
-1. schedulers/scheduling_ddpm.py
-2. create a config with ddim by setting use_ddim to True
-```
-
-**NOTE: you need to set use_ddim to TRUE**
-
-# 4. Implementing Latent DDPM
-
-Implement the Latent DDPM.
-
-The pre-trained weights of VAE and basic modules are provided. 
-
-Download the pretrained weight here: and put it under a folder named 'pretrained' (create one if it doesn't exsit)
-
-You need to implement:
-
-```
-1. models/vae.py
-2. train.py with vae related stuff
-3. pipeline/ddpm.py with vae related stuff
-```
-
-**NOTE: you need to set use_vae to TRUE**
-
-# 5. Implementing CFG
-
-Implement CFG
-
-```
-1. models/class_embedder.py
-2. train.py with cfg related stuff
-3. pipeline/ddpm.py with cfg related stuff
-```
-
-**NOTE: you need to set use_cfg to TRUE**
-
-# 6. Evaluation
-
-```
-inference.py
-```
+```bash
+conda create -n diffusion_env python=3.9
+conda activate diffusion_env
+pip install -r requirements.txt
+# Dependencies include: torch, torchvision, wandb, diffusers, torchmetrics

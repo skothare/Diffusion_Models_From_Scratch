@@ -54,6 +54,10 @@ mkdir -p experiments
 # CMD="python inference.py \
 #   --config configs/ddim_imagenet_latent_cfg.yaml \
 #   --ckpt experiments/exp-12-ddim_latent_cfg/checkpoints/best.pt"
+# Example 2: UNet + ddpm
+# 1. --use_ddim False           : Switches from the fast DDIM sampler to the stochastic DDPM scheduler.
+# 2. --num_inference_steps 1000 : DDPM cannot be accelerated; it requires the full training chain length.
+# 3. --config configs/ddpm.yaml : Loads the correct pixel-space architecture (no VAE).
 
 # Example 2: DiT + VAE + CFG (latent)
 CMD="python inference.py \
