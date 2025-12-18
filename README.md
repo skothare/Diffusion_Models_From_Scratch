@@ -23,9 +23,9 @@ We evaluated our models using **Fréchet Inception Distance (FID)** and **Incept
 
 We constructed the following two architectures (representations below constructed using Gemini NanoBanana per our from-scratch model's specifications).
 
-![UNet_architecture](F25-Deep-Learning-Project/images/UNet_architecture.png)
+![UNet_architecture](images/UNet_architecture.png)
 
-![DiT_architecture](F25-Deep-Learning-Project/images/DiT_architecture.png)
+![DiT_architecture](images/DiT_architecture.png)
 
 ### Table 3: Model Performance Comparison
 
@@ -40,7 +40,7 @@ We constructed the following two architectures (representations below constructe
 | **DiT-VAE-CFG-8** | Yes | Yes | Transformer | 313.3 | 1.78 ± 0.02 |
 | **DiT-VAE-CFG-12** | Yes | Yes | Transformer | 167.7 | **6.11 ± 0.20** |
 
-![FIDvsIS_allmodels](F25-Deep-Learning-Project/images/FIDvsIS.png)
+![FIDvsIS_allmodels](images/FIDvsIS.png)
 
 ### Analysis & Observations
 * **The Power of Guidance:** Classifier-Free Guidance (CFG) proved to be the single most effective technique for improving semantic coherence. As seen in our qualitative samples, CFG significantly reduced background noise and sharpened class-specific features.
