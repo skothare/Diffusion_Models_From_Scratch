@@ -21,7 +21,7 @@ Diffusion models have become the dominant framework for generative image synthes
 
 We evaluated our models using **Fréchet Inception Distance (FID)** and **Inception Score (IS)** over 5,000 generated samples.
 
-We constructed the following two architectures (representations below constructed using Gemini NanoBanana per our from-scratch model's specifications).
+We constructed the following two architectures (UNet and Diffusion Transformer (DiT) representations below, respectively, constructed using Gemini NanoBanana per our from-scratch model's specifications).
 
 ![UNet_architecture](images/UNet_architecture.png)
 
