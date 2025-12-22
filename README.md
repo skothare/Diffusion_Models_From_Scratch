@@ -19,13 +19,13 @@ Diffusion models have become the dominant framework for generative image synthes
 
 ## Results and Key Findings
 
-We evaluated our models using **Fréchet Inception Distance (FID)** and **Inception Score (IS)** over 5,000 generated samples.
-
 We constructed the following two architectures (UNet and Diffusion Transformer (DiT) representations below, respectively, constructed using Gemini NanoBanana per our from-scratch model's specifications).
 
 ![UNet_architecture](images/UNet_architecture.png)
 
 ![DiT_architecture](images/DiT_architecture.png)
+
+We evaluated our models using **Fréchet Inception Distance (FID)** and **Inception Score (IS)** over 5,000 generated samples.
 
 ### Table 3: Model Performance Comparison
 
@@ -33,20 +33,20 @@ We constructed the following two architectures (UNet and Diffusion Transformer (
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **DDPM** | No | No | UNet | 150.0 | 4.45 ± 0.10 |
 | **DDPM-VAE** | Yes | No | UNet | 241.9 | 3.32 ± 0.12 |
-| **DDPM-CFG** | No | Yes | UNet | **90.4** | 3.32 ± 0.46 |
+| **DDPM-CFG** | No | Yes | UNet | **94.2** | **11.21 ± 0.46** |
 | **DDPM-VAE-CFG** | Yes | Yes | UNet | 189.5 | 5.79 ± 0.30 |
 | **DDIM** | No | No | UNet | 152.1 | 5.59 ± 0.25 |
 | **DDIM-VAE-CFG** | Yes | Yes | UNet | 168.2 | 5.29 ± 0.15 |
 | **DiT-VAE-CFG-8** | Yes | Yes | Transformer | 313.3 | 1.78 ± 0.02 |
-| **DiT-VAE-CFG-12** | Yes | Yes | Transformer | 167.7 | **6.11 ± 0.20** |
+| **DiT-VAE-CFG-12** | Yes | Yes | Transformer | 167.7 | 6.11 ± 0.20 |
 
 ![FIDvsIS_allmodels](images/FIDvsIS.png)
 
 ### Analysis & Observations
 * **The Power of Guidance:** Classifier-Free Guidance (CFG) proved to be the single most effective technique for improving semantic coherence. As seen in our qualitative samples, CFG significantly reduced background noise and sharpened class-specific features.
-* **DDIM vs. DDPM:** While DDIM provided a massive speedup (50 steps vs 1000 steps), the perceptual quality was slightly sharper, though the FID scores remained comparable. This confirms that deterministic sampling retains distribution coverage while improving edge definition.
-* **Efficiency (Latent vs. Pixel):** Although Latent Diffusion (LDM) is typically used to reduce computational costs for high-resolution images, we observed diminishing returns at $128 \times 128$. The lightweight VAE provided negligible throughput gains while introducing reconstruction artifacts (information bottleneck). Consequently, **Pixel-space DDPM** achieved superior texture fidelity, suggesting that direct pixel modeling is preferable when resolution constraints are low.
-* **Fidelity (Impact of CFG & DDIM):** Classifier-Free Guidance (CFG) was the primary driver of quantitative performance, boosting Inception Scores significantly. Conversely, while DDIM provided a 20x speedup (50 vs. 1000 steps), it produced sharper edges at the cost of slight distribution shifts, confirming the efficiency-quality trade-off of deterministic sampling.
+* **DDIM vs. DDPM:** We evaluated accelerated sampling at 500 steps. Under equal step budgets, DDIM produced sharper samples while FID remained similar, highlighting a perceptual–metric mismatch.
+* **Efficiency (Latent vs. Pixel):** Although Latent Diffusion (LDM) is typically used to reduce computational costs for high-resolution images, we observed diminishing returns at $128 \times 128$. Although latent diffusion reduces dimensionality (128² → 32² latents), the VAE (~55M params) introduces a lossy reconstruction bottleneck (image details that don't help reconstruction loss are discarded); at 128×128 we observed pixel-space diffusion retained finer textures and achieved better FID. Consequently, **Pixel-space DDPM** achieved superior texture fidelity, suggesting that direct pixel modeling is preferable when resolution constraints are low.
+* **Fidelity (Impact of CFG & DDIM):** Classifier-Free Guidance (CFG) was the primary driver of quantitative performance, boosting Inception Scores significantly. DDIM reduced inference cost by using fewer denoising steps (500 vs. 1000 in our experiments), and in principle supports more aggressive subsampling (e.g., 50 steps), enabling order-of-magnitude speedups.
 * **Architecture (DiT vs. U-Net):** Our results highlight that Vision Transformers (DiT) are highly data-and-compute hungry. In our constrained resource setting, the standard U-Net backbone converged faster and achieved greater stability than the DiT, which required significantly more depth and careful hyperparameter tuning to match U-Net performance.
 * **DiT Scalability:** Our Diffusion Transformer (DiT) implementation showed that while Transformers are powerful, they are highly sensitive to depth and patch size. The smaller DiT (Depth=8) struggled to converge compared to the U-Net, highlighting the need for larger scale data and compute to unlock ViT performance in diffusion.
 
